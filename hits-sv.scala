@@ -25,6 +25,7 @@
 
 import org.apache.spark._
 import org.apache.spark.graphx._
+import org.apache.spark.graphx.lib._
 import org.apache.spark.rdd.RDD
 
 import org.apache.spark.mllib.linalg._
@@ -38,6 +39,15 @@ val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 // Compute the pagerank of the graph
 val ranks = graph.pageRank(0.0001).vertices
 println(ranks.collect.mkString("\n"))
+
+// Compute SVD (SVD++ algorithm)
+//  source: http://public.research.att.com/~volinsky/netflix/kdd08koren.pdf 
+val edgesRDD_double = graph.edges.map[Edge[Double]](
+    e => new Edge(e.srcId, e.dstId, e.attr)).persist
+val svdConf = new SVDPlusPlus.Conf(5, 20, 0.0, 1.0, 0.2, 0.5, 0.7, 0.9)
+
+val svd_eval = SVDPlusPlus.run(edgesRDD_double, svdConf)
+svd_eval._1.vertices.foreach(println)
 
 
 /* Spark */
