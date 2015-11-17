@@ -28,8 +28,10 @@ import org.apache.spark.graphx._
 import org.apache.spark.rdd.RDD
 
 import org.apache.spark.mllib.linalg._
+import org.apache.spark.mllib.linalg.distributed._
 
 
+/* Spark - GraphX */
 // Load the graph from the edge list file
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 
@@ -37,6 +39,8 @@ val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 val ranks = graph.pageRank(0.0001).vertices
 println(ranks.collect.mkString("\n"))
 
+
+/* Spark */
 // Read the graph file
 val inputData = sc.textFile("karate.edgelist").map {
   line => val parts = line.split(" ")
@@ -44,7 +48,7 @@ val inputData = sc.textFile("karate.edgelist").map {
 }
 
 // Number of columns
-val nCol = inputData.map(_._2).distinct().count().toInt
+val nCol = inputData.flatMap(e => List(e._1, e._2)).distinct.count.toInt
 
 // Generate rows for RowMatrix
 val dataRows = inputData.groupBy(_._1).map[(Long, SparseVector)] {
@@ -53,13 +57,13 @@ val dataRows = inputData.groupBy(_._1).map[(Long, SparseVector)] {
 }
 
 // Generate the RowMatrix
-val mat = new RowMatrix(dataRows.map(_._2).persist())
+val mat = new RowMatrix(dataRows.map[Vector](_._2).persist())
 
 val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(5, computeU = false)
 
 val s: Vector = svd.s
 
-s.foreach(println)
+s.toArray.foreach(println)
 
 
 print(dataRM)
