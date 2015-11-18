@@ -30,8 +30,8 @@ val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 val num_vertex = graph.vertices.count().toInt
 
 // Compute the in- and out-neighbors of every vertex
-val in_nbrs = graph.collectNeighbors(EdgeDirection.In)
-val out_nbrs = graph.collectNeighbors(EdgeDirection.Out)
+val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect()
+val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
 
 // Parameters
 val num_iter = 10
@@ -45,11 +45,13 @@ var auths = Array.fill(num_vertex)(1.0)
 for (iter <- 0 until num_iter) {
     // Update and normalize the authority values
     for (i <- 0 unitl num_vertex) {
-        auths(i) = in_nbrs[i].map(j => hubs(j)).sum / dominant_eigen
+        val in_nbrs = in_nbrs_set.find(_._1 == i).get._2.map(_._1)
+        auths(i) = in_nbrs.map(j => hubs(j)).sum / dominant_eigen
     }
     // Update and normalize the hub values
     for (i <- 0 until num_vertex) {
-        hubs(i) = out_nbrs[i].map(j => auths(j)).sum / dominant_eigen
+        val out_nbrs = out_nbrs_set.find(_._1 == i).get._2.map(_._1)
+        hubs(i) = out_nbrs.map(j => auths(j)).sum / dominant_eigen
     }
 }
 
