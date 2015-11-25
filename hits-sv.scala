@@ -36,18 +36,16 @@ import org.apache.spark.mllib.linalg.distributed._
 // Load the graph from the edge list file
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 
+// Get a subgraph filtering by a given degree threshold
+val degreeThreshold = 3
+/* first, degree is added (overriding) as a vertex attribute (in outerJoinVertices) */
+/* note: the new degree attribute is added as Option[Int] */
+val subgraph = graph.outerJoinVertices(graph.degrees){ case(id,attr,deg) => deg }.
+                subgraph(vpred = (id, attr) => attr.get > degreeThreshold)
+
 // Compute the pagerank of the graph
 val ranks = graph.pageRank(0.0001).vertices
 println(ranks.collect.mkString("\n"))
-
-// Compute SVD (SVD++ algorithm)
-//  source: http://public.research.att.com/~volinsky/netflix/kdd08koren.pdf 
-val edgesRDD_double = graph.edges.map[Edge[Double]](
-    e => new Edge(e.srcId, e.dstId, e.attr)).persist
-val svdConf = new SVDPlusPlus.Conf(5, 20, 0.0, 1.0, 0.2, 0.5, 0.7, 0.9)
-
-val svd_eval = SVDPlusPlus.run(edgesRDD_double, svdConf)
-svd_eval._1.vertices.foreach(println)
 
 
 /* Spark */
