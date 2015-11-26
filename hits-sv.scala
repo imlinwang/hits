@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 Lin Wang
+// Copyright (c) 2015 Lin Wang, Luis F. Chiroque
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
 // copy of this software and associated documentation files (the "Software"),
@@ -40,41 +40,44 @@ val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 val degreeThreshold = 3
 /* first, degree is added (overriding) as a vertex attribute (in outerJoinVertices) */
 /* note: the new degree attribute is added as Option[Int] */
-val subgraph = graph.outerJoinVertices(graph.degrees){ case(id,attr,deg) => deg }.
-                subgraph(vpred = (id, attr) => attr.get > degreeThreshold)
+val subgraph = graph.outerJoinVertices(graph.degrees){
+    case(id, attr, deg) => deg
+}.subgraph(vpred = (id, attr) => attr.get > degreeThreshold)
 
 // Compute the pagerank of the graph
 val ranks = graph.pageRank(0.0001).vertices
 println(ranks.collect.mkString("\n"))
 
+// Number of nodes in the subgraph
+val num_node = subgraph.vertices.map(
+    vertex => vertex._1
+).collect.distinct.size.toLong
 
-/* Spark */
-// Read the graph file
-val inputData = sc.textFile("karate.edgelist").map {
-  line => val parts = line.split(" ")
-  (parts(0).toLong, parts(1).toInt, (1).toDouble)
-}
+// Obtain all the triplets from the subgraph
+// (src, dst, 1.0)
+val edge_list = subgraph.triplets.map(
+    triplet => (triplet.srcId.toLong, triplet.dstId.toLong, (1).toDouble)
+)
 
-// Number of columns
-val nCol = inputData.flatMap(e => List(e._1, e._2)).distinct.count.toInt
-
-// Generate rows for RowMatrix
-val dataRows = inputData.groupBy(_._1).map[(Long, SparseVector)] {
-  row => val (indices, values) = row._2.map(e => (e._2, e._3)).unzip
-  (row._1, new SparseVector(nCol, indices.toArray, values.toArray))
+// Generate sparse rows for RowMatrix
+val rows = edge_list.groupBy(_._1).map[(Long, SparseVector)] {
+    row => val (indices, values) = row._2.map(e => (e._2, e._3)).unzip
+    (row._1, new SparseVector(num_node, indices.toArray, values.toArray))
 }
 
 // Generate the RowMatrix
-val mat = new RowMatrix(dataRows.map[Vector](_._2).persist())
+val mat = new RowMatrix(rows.map[Vector](_._2).persist())
 
-val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(5, computeU = false)
+// Compute the Gramian Matrix for the RowMatrix
+val mat_gramian = mat.computeGramianMatrix()
 
-val s: Vector = svd.s
+// Transform the gramian Matrix to a distributed RowMatrix
+val rows = mat_gramian.transpose.toArray.grouped(mat_gramian.numRows).toArray
+val vectors = rows.map(row => new DenseVector(row))
+val rows_gramian: RDD[Vector] = sc.parallelize(vectors)
+val mat_gramian_distr = new RowMatrix(rows_gramian)
 
-s.toArray.foreach(println)
-
-
-print(dataRM)
-
-
-// sc.makeRDD(svd.s.toArray, 1).saveAsTextFile("karate.sv")
+// Apply the SVD function to compute the dominant singular value
+val svd: SingularValueDecomposition[RowMatrix, Matrix]
+    = mat_gramian_distr.computeSVD(1, computeU = false)
+val dominant_sv = svd.s.apply(0)
