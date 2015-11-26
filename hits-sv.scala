@@ -81,3 +81,32 @@ val mat_gramian_distr = new RowMatrix(rows_gramian)
 val svd: SingularValueDecomposition[RowMatrix, Matrix]
     = mat_gramian_distr.computeSVD(1, computeU = false)
 val dominant_sv = svd.s.apply(0)
+
+// Compute the in- and out-neighbors of every vertex
+val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect
+val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
+
+// Parameters
+val num_iter = 50
+
+// Initialize
+var hubs = Array.fill(num_node.toInt)(1.0)
+var auths = Array.fill(num_node.toInt)(1.0)
+
+// Iterate num_iter rounds
+for (iter <- 1 to num_iter) {
+    // Update and normalize the authority values
+    for (i <- 1 to num_node.toInt) {
+        val in_nbrs = in_nbrs_set.find(_._1 == i).get._2.map(_._1)
+        auths(i - 1) = in_nbrs.map(j => hubs(j.toInt - 1)).sum / dominant_sv
+    }
+    // Update and normalize the hub values
+    for (i <- 1 to num_node.toInt) {
+        val out_nbrs = out_nbrs_set.find(_._1 == i).get._2.map(_._1)
+        hubs(i - 1) = out_nbrs.map(j => auths(j.toInt - 1)).sum / dominant_sv
+    }
+}
+
+// Print the results for hubs and authorities
+hubs.foreach(println)
+auths.foreach(println)
