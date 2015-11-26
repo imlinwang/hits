@@ -27,33 +27,33 @@ import org.apache.spark.rdd.RDD
 
 // Load the graph from the edge list file
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
-val num_vertex = graph.vertices.count().toInt
+val num_node = graph.vertices.distinct.count.toLong
 
 // Compute the in- and out-neighbors of every vertex
-val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect()
+val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect
 val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
 
 // Parameters
 val num_iter = 10
-val dominant_eigen = 1.0
+val dominant_sv = 1.0
 
 // Initialize
-var hubs = Array.fill(num_vertex)(1.0)
-var auths = Array.fill(num_vertex)(1.0)
+var hubs = Array.fill(num_node.toInt)(1.0)
+var auths = Array.fill(num_node.toInt)(1.0)
 
 // Iterate num_iter rounds
-for (iter <- 0 until num_iter) {
+for (iter <- 0 to num_iter - 1) {
     // Update and normalize the authority values
-    for (i <- 0 unitl num_vertex) {
+    for (i <- 0 to num_node - 1) {
         val in_nbrs = in_nbrs_set.find(_._1 == i).get._2.map(_._1)
-        auths(i) = in_nbrs.map(j => hubs(j)).sum / dominant_eigen
+        auths(i.toInt) = in_nbrs.map(j => hubs(j.toInt)).sum / dominant_eigen
     }
     // Update and normalize the hub values
-    for (i <- 0 until num_vertex) {
+    for (i <- 0 to num_node - 1) {
         val out_nbrs = out_nbrs_set.find(_._1 == i).get._2.map(_._1)
-        hubs(i) = out_nbrs.map(j => auths(j)).sum / dominant_eigen
+        hubs(i.toInt) = out_nbrs.map(j => auths(j.toInt)).sum / dominant_eigen
     }
 }
 
-hubs.collect.foreach(println)
-auths.collect.foreach(println)
+hubs.foreach(println)
+auths.foreach(println)
