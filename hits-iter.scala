@@ -42,16 +42,16 @@ var hubs = Array.fill(num_node.toInt)(1.0)
 var auths = Array.fill(num_node.toInt)(1.0)
 
 // Iterate num_iter rounds
-for (iter <- 0 to num_iter - 1) {
+for (iter <- 1 to num_iter) {
     // Update and normalize the authority values
-    for (i <- 0 to num_node - 1) {
+    for (i <- 1 to num_node.toInt) {
         val in_nbrs = in_nbrs_set.find(_._1 == i).get._2.map(_._1)
-        auths(i.toInt) = in_nbrs.map(j => hubs(j.toInt)).sum / dominant_eigen
+        auths(i - 1) = in_nbrs.map(j => hubs(j.toInt - 1)).sum / dominant_sv
     }
     // Update and normalize the hub values
-    for (i <- 0 to num_node - 1) {
+    for (i <- 1 to num_node.toInt) {
         val out_nbrs = out_nbrs_set.find(_._1 == i).get._2.map(_._1)
-        hubs(i.toInt) = out_nbrs.map(j => auths(j.toInt)).sum / dominant_eigen
+        hubs(i - 1) = out_nbrs.map(j => auths(j.toInt - 1)).sum / dominant_sv
     }
 }
 
