@@ -37,7 +37,7 @@ import org.apache.spark.mllib.linalg.distributed._
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 
 // Get a subgraph filtering by a given degree threshold
-val degreeThreshold = 3
+val degreeThreshold = 1
 /* first, degree is added (overriding) as a vertex attribute (in outerJoinVertices) */
 /* note: the new degree attribute is added as Option[Int] */
 val subgraph = graph.outerJoinVertices(graph.degrees){
@@ -45,22 +45,22 @@ val subgraph = graph.outerJoinVertices(graph.degrees){
 }.subgraph(vpred = (id, attr) => attr.get > degreeThreshold)
 
 // Compute the pagerank of the graph
-val ranks = graph.pageRank(0.0001).vertices
+val ranks = subgraph.pageRank(0.0001).vertices
 println(ranks.collect.mkString("\n"))
 
 // Number of nodes in the subgraph
 val num_node = subgraph.vertices.map(
     vertex => vertex._1
-).collect.distinct.size.toLong
+).collect.distinct.size.toInt
 
 // Obtain all the triplets from the subgraph
 // (src, dst, 1.0)
 val edge_list = subgraph.triplets.map(
-    triplet => (triplet.srcId.toLong, triplet.dstId.toLong, (1).toDouble)
+    triplet => (triplet.srcId.toInt, triplet.dstId.toInt, (1).toDouble)
 )
 
 // Generate sparse rows for RowMatrix
-val rows = edge_list.groupBy(_._1).map[(Long, SparseVector)] {
+val rows = edge_list.groupBy(_._1).map[(Int, SparseVector)] {
     row => val (indices, values) = row._2.map(e => (e._2, e._3)).unzip
     (row._1, new SparseVector(num_node, indices.toArray, values.toArray))
 }
@@ -83,25 +83,25 @@ val svd: SingularValueDecomposition[RowMatrix, Matrix]
 val dominant_sv = svd.s.apply(0)
 
 // Compute the in- and out-neighbors of every vertex
-val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect
-val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
+val in_nbrs_set = subgraph.collectNeighbors(EdgeDirection.In).collect
+val out_nbrs_set = subgraph.collectNeighbors(EdgeDirection.Out).collect
 
 // Parameters
 val num_iter = 50
 
 // Initialize
-var hubs = Array.fill(num_node.toInt)(1.0)
-var auths = Array.fill(num_node.toInt)(1.0)
+var hubs = Array.fill(num_node)(1.0)
+var auths = Array.fill(num_node)(1.0)
 
 // Iterate num_iter rounds
 for (iter <- 1 to num_iter) {
     // Update and normalize the authority values
-    for (i <- 1 to num_node.toInt) {
+    for (i <- 1 to num_node) {
         val in_nbrs = in_nbrs_set.find(_._1 == i).get._2.map(_._1)
         auths(i - 1) = in_nbrs.map(j => hubs(j.toInt - 1)).sum / dominant_sv
     }
     // Update and normalize the hub values
-    for (i <- 1 to num_node.toInt) {
+    for (i <- 1 to num_node) {
         val out_nbrs = out_nbrs_set.find(_._1 == i).get._2.map(_._1)
         hubs(i - 1) = out_nbrs.map(j => auths(j.toInt - 1)).sum / dominant_sv
     }
