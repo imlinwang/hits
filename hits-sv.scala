@@ -36,20 +36,25 @@ import org.apache.spark.mllib.linalg.distributed._
 // Load the graph from the edge list file
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 
+// Number of nodes in the subgraph
+val num_node = graph.vertices.map(
+    vertex => vertex._1
+).collect.distinct.size.toInt
+
+// Compute the pagerank of the graph
+val ranks = graph.pageRank(0.0001).vertices
+println(ranks.collect.mkString("\n"))
+
 // Get a subgraph filtering by a given degree threshold
 val degreeThreshold = 1
 /* first, degree is added (overriding) as a vertex attribute (in outerJoinVertices) */
 /* note: the new degree attribute is added as Option[Int] */
 val subgraph = graph.outerJoinVertices(graph.degrees){
     case(id, attr, deg) => deg
-}.subgraph(vpred = (id, attr) => attr.get > degreeThreshold)
-
-// Compute the pagerank of the graph
-val ranks = subgraph.pageRank(0.0001).vertices
-println(ranks.collect.mkString("\n"))
+}.subgraph(vpred = (id, attr) => attr.get >= degreeThreshold)
 
 // Number of nodes in the subgraph
-val num_node = subgraph.vertices.map(
+val num_node_sub = subgraph.vertices.map(
     vertex => vertex._1
 ).collect.distinct.size.toInt
 
@@ -62,7 +67,7 @@ val edge_list = subgraph.triplets.map(
 // Generate sparse rows for RowMatrix
 val rows = edge_list.groupBy(_._1).map[(Int, SparseVector)] {
     row => val (indices, values) = row._2.map(e => (e._2, e._3)).unzip
-    (row._1, new SparseVector(num_node, indices.toArray, values.toArray))
+    (row._1, new SparseVector(num_node_sub, indices.toArray, values.toArray))
 }
 
 // Generate the RowMatrix
@@ -83,8 +88,8 @@ val svd: SingularValueDecomposition[RowMatrix, Matrix]
 val dominant_sv = svd.s.apply(0)
 
 // Compute the in- and out-neighbors of every vertex
-val in_nbrs_set = subgraph.collectNeighbors(EdgeDirection.In).collect
-val out_nbrs_set = subgraph.collectNeighbors(EdgeDirection.Out).collect
+val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect
+val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
 
 // Parameters
 val num_iter = 50
