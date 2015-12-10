@@ -116,7 +116,7 @@ object Hits extends Logging {
             prevHitsGraph.vertices.unpersist(false)
             prevHitsGraph.edges.unpersist(false)
 
-            logInfo(s"Authorities updated")
+            logInfo(s"Authorities updated...")
 
             // Compute the hub contributions of each vertex, perform local
             // preaggregation, and do the final aggregation at the receiving
@@ -142,7 +142,7 @@ object Hits extends Logging {
             prevHitsGraph.vertices.unpersist(false)
             prevHitsGraph.edges.unpersist(false)
 
-            logInfo(s"Hubs updated")
+            logInfo(s"Hubs updated...")
 
             logInfo(s"HITS finished iteration $iteration.")
 
