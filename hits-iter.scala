@@ -31,30 +31,28 @@ import math._
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 val num_node = graph.vertices.distinct.count.toLong
 
-// Compute the in- and out-neighbors of every vertex
-val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect
-val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
-
 // Parameters
 val num_iter = 30
 val dominant_sv = sqrt(num_node) //1.0
 
+// Compute the in- and out-neighbors of every vertex
+val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect.map {
+    case (vId, inNbrs) => (vId -> inNbrs.map(_._1)) } toMap //TODO: check warning
+val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect.map {
+    case (vId, outNbrs) => (vId -> outNbrs.map(_._1)) } toMap //TODO: check warning
+
 // Initialize
-var hubs = Array.fill(num_node.toInt)(1.0)
-var auths = Array.fill(num_node.toInt)(1.0)
+var hubs = out_nbrs_set.map { case (vId,nbrs) => (vId -> 1.0) } //Array.fill(num_node.toInt)(1.0)
+var auths = in_nbrs_set.map { case (vId,nbrs) => (vId -> 1.0) } //Array.fill(num_node.toInt)(1.0)
 
 // Iterate num_iter rounds
 for (iter <- 1 to num_iter) {
     // Update and normalize the authority values
-    for (i <- 1 to num_node.toInt) {
-        val in_nbrs = in_nbrs_set.find(_._1 == i).get._2.map(_._1)
-        auths(i - 1) = in_nbrs.map(j => hubs(j.toInt - 1)).sum / dominant_sv
-    }
+    auths = in_nbrs_set.map { case(vId,inNbrs) =>
+        (vId -> inNbrs.map(nbr => hubs(nbr)).sum / dominant_sv) }
     // Update and normalize the hub values
-    for (i <- 1 to num_node.toInt) {
-        val out_nbrs = out_nbrs_set.find(_._1 == i).get._2.map(_._1)
-        hubs(i - 1) = out_nbrs.map(j => auths(j.toInt - 1)).sum / dominant_sv
-    }
+    hubs = out_nbrs_set.map { case(vId,outNbrs) =>
+        (vId -> outNbrs.map(nbr => auths(nbr)).sum / dominant_sv) }
 }
 
 hubs.foreach(println)
