@@ -54,6 +54,18 @@ for (iter <- 1 to num_iter) {
     hubs = out_nbrs_set.map { case(vId,outNbrs) =>
         (vId -> outNbrs.map(nbr => auths(nbr)).sum / dominant_sv) }
 }
+// Last step: normalize (optional?)
+var norm = sqrt( auths.map { case (vId, auth) => pow(auth, 2) } sum )
+auths = auths.map { case (vId, auth) => (vId -> auth / norm) }
+norm = sqrt( hubs.map { case (vId, hub) => pow(hub, 2) } sum )
+hubs = hubs.map { case (vId, hub) => (vId -> hub/ norm) }
 
-hubs.foreach(println)
-auths.foreach(println)
+//hubs.foreach(println)
+//auths.foreach(println)
+
+val auths_rdd = sc.parallelize(auths.toSeq)
+val hubs_rdd = sc.parallelize(hubs.toSeq)
+
+auths_rdd.saveAsTextFile("karate_auths")
+hubs_rdd.saveAsTextFile("karate_hubs")
+
