@@ -25,6 +25,8 @@ import org.apache.spark.graphx._
 import org.apache.spark.graphx.lib._
 import org.apache.spark.rdd.RDD
 
+import math._
+
 // Load the graph from the edge list file
 val graph = GraphLoader.edgeListFile(sc, "karate.edgelist")
 val num_node = graph.vertices.distinct.count.toLong
@@ -34,8 +36,8 @@ val in_nbrs_set = graph.collectNeighbors(EdgeDirection.In).collect
 val out_nbrs_set = graph.collectNeighbors(EdgeDirection.Out).collect
 
 // Parameters
-val num_iter = 10
-val dominant_sv = 1.0
+val num_iter = 30
+val dominant_sv = sqrt(num_node) //1.0
 
 // Initialize
 var hubs = Array.fill(num_node.toInt)(1.0)
