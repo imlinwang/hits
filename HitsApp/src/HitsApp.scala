@@ -128,7 +128,7 @@ object Hits {
       // vertices. Requires a shuffle for aggregation.
       val hubUpdates = hitsGraph.aggregateMessages[Double](
         sendMsg = {
-          triplet => triplet.sendToDst(triplet.srcAttr._1.toDouble)
+          triplet => triplet.sendToSrc(triplet.dstAttr._1.toDouble)
         },
         mergeMsg = {
           (a, b) => a + b
