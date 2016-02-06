@@ -79,8 +79,15 @@ object Hits {
     = matGramianDistr.computeSVD(1, computeU = false)
     val dominantSV = svd.s.apply(0)
 
+    // Initialize
     var hitsGraph: Graph[(Double, Double), Double] = graph.mapVertices(
-      (id, attr) => (1.0, 1.0)).mapEdges(e => e.attr.toDouble)
+      (id, attr) => (0.0, 0.0)).mapEdges(e => e.attr.toDouble)
+
+    hitsGraph = hitsGraph.joinVertices(graph.outDegrees) {
+      (id, hits, degOpt) => (degOpt.toDouble, hits._2)
+    }.joinVertices(graph.inDegrees) {
+      (id, hits, degOpt) => (hits._1, degOpt.toDouble)
+    }
 
     val numIter = args.apply(3).toInt
 
@@ -94,21 +101,20 @@ object Hits {
       // vertices. Requires a shuffle for aggregation.
       val authUpdates = hitsGraph.aggregateMessages[Double](
         sendMsg = {
-          triplet => triplet.sendToDst(triplet.srcAttr._2.toDouble)
+          triplet => triplet.sendToSrc(triplet.dstAttr._2.toDouble)
         },
         mergeMsg = {
           (a, b) => a + b
         }
       )
 
-      // Apply the final authrity update to get the new authorities, using
+      // Apply the final authority update to get the new authorities, using
       // join to preserve authorities of vertices that didn't receive a
       // message. Requires a shuffle for broadcasting updated authorities
       // to the edge partitions.
       prevHitsGraph = hitsGraph
       hitsGraph = hitsGraph.joinVertices(authUpdates) {
-        (id, oldValues, msgSum)
-        => (msgSum, oldValues._2)
+        (id, oldValues, msgSum) => (msgSum, oldValues._2)
       }.cache()
 
       // Normalization
@@ -128,7 +134,7 @@ object Hits {
       // vertices. Requires a shuffle for aggregation.
       val hubUpdates = hitsGraph.aggregateMessages[Double](
         sendMsg = {
-          triplet => triplet.sendToSrc(triplet.dstAttr._1.toDouble)
+          triplet => triplet.sendToDst(triplet.srcAttr._1.toDouble)
         },
         mergeMsg = {
           (a, b) => a + b
