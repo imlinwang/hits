@@ -108,19 +108,14 @@ object Hits {
         }
       )
 
-      // Apply the final authority update to get the new authorities, using
-      // join to preserve authorities of vertices that didn't receive a
-      // message. Requires a shuffle for broadcasting updated authorities
-      // to the edge partitions.
+      // Apply the final authority update to get the new authorities and
+      // normalize them. It uses join to preserve authorities of vertices
+      // that didn't receive a message. Requires a shuffle for broadcasting
+      // updated authorities to the edge partitions.
       prevHitsGraph = hitsGraph
       hitsGraph = hitsGraph.joinVertices(authUpdates) {
-        (id, oldValues, msgSum) => (msgSum, oldValues._2)
-      }.cache()
-
-      // Normalization
-      hitsGraph = hitsGraph.mapVertices(
-          (id, attr) => (attr._1 / math.sqrt(dominantSV), attr._2)
-      ).mapEdges(e => e.attr.toDouble)
+        (id, oldValues, msgSum) => (msgSum / math.sqrt(dominantSV), oldValues._2)
+      }.cache().mapEdges(e => e.attr.toDouble)
 
       // materializes hitsGraph.vertices
       hitsGraph.edges.foreachPartition(x => {})
@@ -140,20 +135,16 @@ object Hits {
           (a, b) => a + b
         }
       )
-      // Apply the final hub update to get the new hubs, using
-      // join to preserve hubs of vertices that didn't receive a
-      // message. Requires a shuffle for broadcasting updated hubs
-      // to the edge partitions.
+
+      // Apply the final hub update to get the new hubs and normalize
+      // them. It uses join to preserve hub of vertices that didn't
+      // receive a message. Requires a shuffle for broadcasting updated
+      // hubs to the edge partitions.
       prevHitsGraph = hitsGraph
       hitsGraph = hitsGraph.joinVertices(hubUpdates) {
         (id, oldValues, msgSum)
-        => (oldValues._1, msgSum)
-      }.cache()
-
-      // Normalization
-      hitsGraph = hitsGraph.mapVertices(
-          (id, attr) => (attr._1, attr._2 / math.sqrt(dominantSV))
-      ).mapEdges(e => e.attr.toDouble)
+        => (oldValues._1, msgSum / math.sqrt(dominantSV))
+      }.cache().mapEdges(e => e.attr.toDouble)
 
       // materializes hitsGraph.vertices
       hitsGraph.edges.foreachPartition(x => {})
