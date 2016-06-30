@@ -155,6 +155,15 @@ object Hits {
 
       iterations += 1
     }
+
+    // Final normalization
+    val authNorm = math.sqrt(hitsGraph.vertices.map{ case (vid, attr) => math.pow(attr._1, 2.0) } sum)
+    val hubsNorm = math.sqrt(hitsGraph.vertices.map{ case (vid, attr) => math.pow(attr._2, 2.0) } sum)
+
+    hitsGraph = hitsGraph.mapVertices(
+      (id, attr) => (attr._1 / authNorm, attr._2 / hubsNorm)
+    ).mapEdges(e => e.attr.toDouble)
+
     hitsGraph.vertices.saveAsTextFile("./hits.result")
   }
 }
