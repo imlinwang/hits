@@ -30,48 +30,6 @@ import org.apache.spark.mllib.linalg._
 import org.apache.spark.mllib.linalg.distributed._
 
 object Hits {
-
-  // Given a directed graph and a degree threshold, creates a subgraph with those vertices
-  // with at least such degree and computes the SVD on its adj matrix and its transpose.
-  // It returns the maximum computed SV for both matrices.
-  //     (Graph, Int) => (Double, Double)
-  // (graph, degThrs) -> (maxSV_auth, maxSV_hub)
-  def getApproxMaxSVD (graph: Graph[Int, Int], degreeThreshold: Int): (Double, Double) = {
-    val subgraph = graph.outerJoinVertices(graph.degrees){
-      case(id, attr, deg) => deg
-    }.subgraph(vpred = (id, attr) => attr.get >= degreeThreshold)
-    val numNodeSub = subgraph.vertices.map(vertex => vertex._1).collect.distinct.length.toInt
-    // Obtain the edge list with weight 1.0 on each edge
-    val edgeList = subgraph.triplets.map(
-      triplet => (triplet.srcId.toInt, triplet.dstId.toInt, (1).toDouble)
-    )
-    // Generate sparse rows for RowMatrix
-    val rowsRaw_t = edgeList.groupBy(_._2).map[(Int, SparseVector)] {
-      row => val (indices, values) = row._2.map(e => (e._1, e._3)).unzip
-        (row._1, new SparseVector(
-          numNodeSub, indices.toArray, values.toArray))
-    }
-    val rowsRaw = edgeList.groupBy(_._1).map[(Int, SparseVector)] {
-      row => val (indices, values) = row._2.map(e => (e._2, e._3)).unzip
-        (row._1, new SparseVector(
-          numNodeSub, indices.toArray, values.toArray))
-    }
-    // Generate the RowMatrix (transpose)
-    val buffRDD_t = rowsRaw_t.map[Vector](_._2).persist()
-    val mat_t = new RowMatrix(buffRDD_t)
-    // Apply the SVD function to compute the dominant singular value (transpose)
-    val svd_t: SingularValueDecomposition[RowMatrix, Matrix] = mat_t.computeSVD(1, computeU = false)
-    buffRDD_t.unpersist(false)
-    // Generate the RowMatrix
-    val buffRDD = rowsRaw.map[Vector](_._2).persist()
-    val mat = new RowMatrix(buffRDD)
-    // Apply the SVD function to compute the dominant singular value
-    val svd: SingularValueDecomposition[RowMatrix, Matrix] = mat.computeSVD(1, computeU = false)
-    buffRDD.unpersist(false)
-    //val dominantSV = svd.s.apply(0)
-    (svd_t.s.apply(0), svd.s.apply(0))
-  }
-
   def main(args: Array[String]): Unit = {
 
     if (args.length != 4) {
@@ -86,22 +44,49 @@ object Hits {
     val numNode = graph.vertices.map(vertex => vertex._1).collect.distinct.length.toInt
 
     val degreeThreshold = args.apply(2).toInt
-    // Compute the dominant SV for both M^t and M (M=Adj(G))
-    // In general, sqrt(\lambda_\max) for M^tM = \sigma_\max for M
-    val dominantSV = getApproxMaxSVD(graph, degreeThreshold)
+    val subgraph = graph.outerJoinVertices(graph.degrees){
+      case(id, attr, deg) => deg
+    }.subgraph(vpred = (id, attr) => attr.get >= degreeThreshold)
+
+    val numNodeSub = subgraph.vertices.map(vertex => vertex._1).collect.distinct.length.toInt
+
+    // Obtain the edge list with weight 1.0 on each edge
+    val edgeList = subgraph.triplets.map(
+      triplet => (triplet.srcId.toInt, triplet.dstId.toInt, (1).toDouble)
+    )
+
+    // Generate sparse rows for RowMatrix
+    val rowsRaw = edgeList.groupBy(_._1).map[(Int, SparseVector)] {
+      row => val (indices, values) = row._2.map(e => (e._2, e._3)).unzip
+        (row._1, new SparseVector(
+          numNodeSub, indices.toArray, values.toArray))
+    }
+
+    // Generate the RowMatrix
+    val mat = new RowMatrix(rowsRaw.map[Vector](_._2).persist())
+
+    // Compute the Gramian Matrix for the RowMatrix
+    val matGramian = mat.computeGramianMatrix()
+
+    // Transform the gramian Matrix to a distributed RowMatrix
+    val rows = matGramian.transpose.toArray.grouped(matGramian.numRows).toArray
+    val vectors = rows.map(row => new DenseVector(row))
+    val rowsGramian: RDD[Vector] = sc.parallelize(vectors)
+    val matGramianDistr = new RowMatrix(rowsGramian)
+
+    // Apply the SVD function to compute the dominant singular value
+    val svd: SingularValueDecomposition[RowMatrix, Matrix]
+    = matGramianDistr.computeSVD(1, computeU = false)
+    val dominantSV = svd.s.apply(0)
 
     // Initialize
     var hitsGraph: Graph[(Double, Double), Double] = graph.mapVertices(
       (id, attr) => (0.0, 0.0)).mapEdges(e => e.attr.toDouble)
 
-    hitsGraph = hitsGraph.joinVertices(graph.inDegrees) {
-      // implicit first iteration
-      (id, hits, degOpt) => (degOpt.toDouble / math.sqrt(numNode) / dominantSV._1, hits._2)
-      //(id, hits, degOpt) => (degOpt.toDouble, hits._2)
-    }.joinVertices(graph.outDegrees) {
-      // implicit first iteration
-      (id, hits, degOpt) => (hits._1, degOpt.toDouble / math.sqrt(numNode) / dominantSV._2)
-      //(id, hits, degOpt) => (hits._1, degOpt.toDouble)
+    hitsGraph = hitsGraph.joinVertices(graph.outDegrees) {
+      (id, hits, degOpt) => (degOpt.toDouble, hits._2)
+    }.joinVertices(graph.inDegrees) {
+      (id, hits, degOpt) => (hits._1, degOpt.toDouble)
     }
 
     val numIter = args.apply(3).toInt
@@ -123,14 +108,17 @@ object Hits {
         }
       )
 
+      // compute normalization value
+      val authNorm = math.sqrt(hitsGraph.vertices.map{ case (vid, attr) => math.pow(attr._1, 2.0) } sum)
+
       // Apply the final authority update to get the new authorities and
       // normalize them. It uses join to preserve authorities of vertices
       // that didn't receive a message. Requires a shuffle for broadcasting
       // updated authorities to the edge partitions.
       prevHitsGraph = hitsGraph
       hitsGraph = hitsGraph.joinVertices(authUpdates) {
-        (id, oldValues, msgSum) => (msgSum / dominantSV._1, oldValues._2)
-      }.mapEdges(e => e.attr.toDouble).cache()
+        (id, oldValues, msgSum) => (msgSum / authNorm, oldValues._2)
+      }.cache().mapEdges(e => e.attr.toDouble)
 
       // materializes hitsGraph.vertices
       hitsGraph.edges.foreachPartition(x => {})
@@ -151,6 +139,9 @@ object Hits {
         }
       )
 
+      // compute normalization value
+      val hubNorm = math.sqrt(hitsGraph.vertices.map{ case (vid, attr) => math.pow(attr._2, 2.0) } sum)
+
       // Apply the final hub update to get the new hubs and normalize
       // them. It uses join to preserve hub of vertices that didn't
       // receive a message. Requires a shuffle for broadcasting updated
@@ -158,8 +149,8 @@ object Hits {
       prevHitsGraph = hitsGraph
       hitsGraph = hitsGraph.joinVertices(hubUpdates) {
         (id, oldValues, msgSum)
-        => (oldValues._1, msgSum / dominantSV._2)
-      }.mapEdges(e => e.attr.toDouble).cache()
+        => (oldValues._1, msgSum / hubNorm)
+      }.cache().mapEdges(e => e.attr.toDouble)
 
       // materializes hitsGraph.vertices
       hitsGraph.edges.foreachPartition(x => {})
@@ -170,15 +161,6 @@ object Hits {
 
       iterations += 1
     }
-
-    // Final normalization
-    val authNorm = math.sqrt(hitsGraph.vertices.map{ case (vid, attr) => math.pow(attr._1, 2.0) } sum)
-    val hubsNorm = math.sqrt(hitsGraph.vertices.map{ case (vid, attr) => math.pow(attr._2, 2.0) } sum)
-
-    hitsGraph = hitsGraph.mapVertices(
-      (id, attr) => (attr._1 / authNorm, attr._2 / hubsNorm)
-    ).mapEdges(e => e.attr.toDouble)
-
     hitsGraph.vertices.saveAsTextFile("./hits.result")
   }
 }
