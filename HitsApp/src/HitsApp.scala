@@ -94,10 +94,14 @@ object Hits {
     var hitsGraph: Graph[(Double, Double), Double] = graph.mapVertices(
       (id, attr) => (0.0, 0.0)).mapEdges(e => e.attr.toDouble)
 
-    hitsGraph = hitsGraph.joinVertices(graph.outDegrees) {
-      (id, hits, degOpt) => (degOpt.toDouble, hits._2)
-    }.joinVertices(graph.inDegrees) {
-      (id, hits, degOpt) => (hits._1, degOpt.toDouble)
+    hitsGraph = hitsGraph.joinVertices(graph.inDegrees) {
+      // implicit first iteration
+      (id, hits, degOpt) => (degOpt.toDouble / math.sqrt(numNode) / dominantSV._1, hits._2)
+      //(id, hits, degOpt) => (degOpt.toDouble, hits._2)
+    }.joinVertices(graph.outDegrees) {
+      // implicit first iteration
+      (id, hits, degOpt) => (hits._1, degOpt.toDouble / math.sqrt(numNode) / dominantSV._2)
+      //(id, hits, degOpt) => (hits._1, degOpt.toDouble)
     }
 
     val numIter = args.apply(3).toInt
